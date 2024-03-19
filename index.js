@@ -53,26 +53,31 @@ const movieSchema = new Schema({
 const Movie = mongoose.model("Movie", movieSchema);
 
 // Routes
-// POST route to fetch movie data by IMDb ID and save it with myScore
-app.post("/api/movies/by-id", async (req, res) => {
-  const { id, myScore, myReview } = req.body; // Expecting 'id' and 'myScore' from the request body
-  console.log("myScore" + myScore);
+// POST route to create new review by fetching IMDb ID and save it with myScore and myReview
+app.post("/api/review/by-id", async (req, res) => {
+  const { id, myScore, myReview } = req.body;
 
   if (!id) {
     return res.status(400).json({ message: "Movie ID is required" });
   }
 
+  // Validate myScore is between 0 and 10
+  const score = parseInt(myScore, 10);
+  if (isNaN(score) || score < 0 || score > 10) {
+    return res.status(400).json({ message: "Score must be between 0 and 10" });
+  }
+
   const apiUrl = `https://www.omdbapi.com/?i=${encodeURIComponent(id)}&apikey=${
     process.env.OMDB_API_KEY
   }`;
-  console.log(apiUrl);
+  
   try {
     const response = await axios.get(apiUrl);
 
     if (response.data.Response === "True") {
       const movieData = {
         ...response.data,
-        myScore: parseInt(myScore, 10),
+        myScore: score,
         myReview,
       };
 
@@ -87,7 +92,7 @@ app.post("/api/movies/by-id", async (req, res) => {
         await movie.save();
       }
 
-      res.json(movieData);
+      res.status(201).json(movieData);
     } else {
       res.status(404).json({ message: "Movie not found" });
     }
@@ -96,23 +101,30 @@ app.post("/api/movies/by-id", async (req, res) => {
   }
 });
 
-// POST route to fetch movie data by title and save it with myScore
-app.post("/api/movies/by-title", async (req, res) => {
+app.post("/api/review/by-title", async (req, res) => {
   const { title, year, myScore, myReview } = req.body;
-  console.log(req);
 
-  let apiUrl = `https://www.omdbapi.com/?apikey=${process.env.OMDB_API_KEY}`;
-  if (title) apiUrl += `&t=${encodeURIComponent(title)}`;
+  // Check if title is provided
+  if (!title) {
+    return res.status(400).json({ message: "Title is required" });
+  }
+
+  // Validate myScore is between 0 and 10
+  const score = parseInt(myScore, 10);
+  if (isNaN(score) || score < 0 || score > 10) {
+    return res.status(400).json({ message: "Score must be between 0 and 10" });
+  }
+
+  let apiUrl = `https://www.omdbapi.com/?apikey=${process.env.OMDB_API_KEY}&t=${encodeURIComponent(title)}`;
   if (year) apiUrl += `&y=${encodeURIComponent(year)}`;
 
   try {
-    console.log(apiUrl);
     const response = await axios.get(apiUrl);
 
     if (response.data.Response === "True") {
       const movieData = {
         ...response.data,
-        myScore: parseInt(myScore, 10),
+        myScore: score,  // Use the validated score
         myReview,
       };
 
@@ -124,7 +136,7 @@ app.post("/api/movies/by-title", async (req, res) => {
         movie = new Movie(movieData);
         await movie.save();
       }
-      res.json(movieData);
+      res.status(201).json(movieData);
     } else {
       res.status(404).json({ message: "Movie not found" });
     }
@@ -135,8 +147,8 @@ app.post("/api/movies/by-title", async (req, res) => {
 
 app.get("/api/movies", async (req, res) => {
   try {
-    const movies = await Movie.find(); // Fetch all movies
-    res.json(movies);
+    const movies = await Movie.find().select('-__v -_id'); // Fetch all movies
+    res.status(200).json(movies);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -149,18 +161,26 @@ app.patch("/api/movies/:imdbID", async (req, res) => {
   try {
     // Build the update object dynamically to include only fields provided in the request
     const updateData = {};
-    if (myScore !== undefined) updateData.myScore = myScore;
+    if (myScore !== undefined)
+    {
+      // Validate myScore is between 0 and 10
+      const score = parseInt(myScore, 10);
+      if (isNaN(score) || score < 0 || score > 10) {
+            return res.status(400).json({ message: "Score must be between 0 and 10" });
+          }
+      updateData.myScore = myScore;
+    }
     if (myReview !== undefined) updateData.myReview = myReview;
 
     // Find the movie by imdbID and update it with the new score and/or review
     const updatedMovie = await Movie.findOneAndUpdate(
       { imdbID: imdbID },
       { $set: updateData },
-      { new: true }
+      { new: true, select:'-__v -_id' }
     );
 
     if (updatedMovie) {
-      res.json(updatedMovie); // Send back the updated document
+      res.status(200).json(updatedMovie); // Send back the updated document
     } else {
       res.status(404).json({ message: "Movie not found" });
     }
@@ -172,9 +192,9 @@ app.patch("/api/movies/:imdbID", async (req, res) => {
 app.get("/api/movies/:imdbID", async (req, res) => {
   const { imdbID } = req.params; // Extract imdbID from URL parameters
   try {
-    const movie = await Movie.findOne({ imdbID: imdbID }); // Find movie by imdbID
+    const movie = await Movie.findOne({ imdbID: imdbID }).select('-__v -_id'); // Find movie by imdbID
     if (movie) {
-      res.json(movie);
+      res.status(200).json(movie);
     } else {
       res.status(404).json({ message: "Movie not found" });
     }
